@@ -7,7 +7,6 @@ from typing import List, Dict, Any
 from contextlib import asynccontextmanager
 import torch
 
-# --- LÜTFEN GÜNCELLEYİN ---
 BI_ENCODER_PATH = "paraphrase-multilingual-MiniLM-L12-v2"
 CROSS_ENCODER_PATH = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 

@@ -1,5 +1,3 @@
-# main_gateway.py
-
 import asyncio
 import aiohttp
 from fastapi import FastAPI
@@ -8,15 +6,12 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from typing import List, Dict, Any
 
-# --- LÜTFEN GÜNCELLEYİN ---
 GEMINI_API_KEY = "AIzaSyD9EGmWuDExT5rMyuJeUDbj1-RUPCOI91k"
 
-# --- Servis Adresleri ---
 ROUTER_URL = "http://127.0.0.1:8001/create_plan"
 RETRIEVER_URL = "http://127.0.0.1:8000"
 RERANKER_URL = "http://127.0.0.1:8002/rerank"
 
-# --- Prompt Şablonları ---
 PROMPT_ANALYZE_FULL_CONTENT = """
 SENARYO: Sana, bir kullanıcının sorusunu cevaplamak için web'den toplanmış en alakalı sayfaların tam metin içerikleri verildi. Sen, bu detaylı içerikleri derinlemesine analiz ederek, veriye dayalı, nihai ve eksiksiz bir cevap hazırlayan uzman bir araştırma analistisin.
 KULLANICININ ORİJİNAL SORUSU: "{user_query}"
@@ -32,8 +27,7 @@ PROMPT_DIRECT_CHAT = """
 Sen empatik bir tercih danışmanısın. Adın 'Rehber Asistan'. Şu mesaja uygun bir cevap ver: "{user_query}"
 """
 
-# --- Uygulama ---
-app = FastAPI(title="Always-Detailed RAG Gateway")
+app = FastAPI(title="Always-Detailed RAG Gateway v2")
 genai.configure(api_key=GEMINI_API_KEY)
 class AskRequest(BaseModel): query: str
 DEFAULT_SAFETY_SETTINGS = { HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE, HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE, HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE, HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE, }
@@ -68,9 +62,12 @@ async def ask_intelligent_system(request: AskRequest):
 
         if action_type == "RAG_SEARCH":
             print("\n[GATEWAY] --- HER ZAMAN DERİN ARAMA MODU AKTİF ---")
-            
-            # Adım 1: Özetleri al ve sırala
-            retriever_payload = {"optimized_queries": plan.get("optimized_queries", []), "extracted_entities": plan.get("extracted_entities", [])}
+
+            retriever_payload = {
+                "original_query": original_query, # <-- YENİ EKLENDİ
+                "optimized_queries": plan.get("optimized_queries", []),
+                "extracted_entities": plan.get("extracted_entities", [])
+            }
             async with session.post(f"{RETRIEVER_URL}/retrieve", json=retriever_payload) as resp:
                 if resp.status != 200: return {"answer": f"Retriever servisi hata verdi: {await resp.text()}", "sources_used": []}
                 doc_snippets = (await resp.json()).get("data", [])
@@ -81,14 +78,12 @@ async def ask_intelligent_system(request: AskRequest):
                 ranked_snippets = (await resp.json()).get("ranked_documents", [])
             if not ranked_snippets: return {"answer": "Bulunan bilgiler sorunuzla yeterince alakalı görünmüyor.", "sources_used": []}
 
-            # Adım 2: Sıralanmış en iyi kaynakların DOĞRUDAN tam içeriğini çek
             urls_to_fetch = [doc['document']['url'] for doc in ranked_snippets[:3]]
             print(f"[GATEWAY] En iyi {len(urls_to_fetch)} kaynağın tam içeriği çekiliyor...")
             async with session.post(f"{RETRIEVER_URL}/fetch_content", json={"urls": urls_to_fetch}) as resp:
                 if resp.status != 200: return {"answer": f"Detaylı içerik çekilemedi: {await resp.text()}", "sources_used": []}
                 full_content_docs = (await resp.json()).get("data", [])
 
-            # Adım 3: Detaylı içerikle nihai cevabı üret
             context_parts_detailed = [f"--- KAYNAK [{i+1}]: {doc.get('url')} ---\n{doc.get('content')}" for i, doc in enumerate(full_content_docs) if doc.get('content')]
             if not context_parts_detailed:
                 return {"answer": "İlgili dökümanların içeriği anlamlı bir şekilde işlenemedi.", "sources_used": []}
